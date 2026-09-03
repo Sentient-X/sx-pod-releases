@@ -129,6 +129,12 @@ fi
 say "initializing the one package submodule"
 git submodule update --init packages/sx-embodiments
 
+# The crates pin their toolchain; installing it here means `just check` never waits on a
+# rustup download mid-gate. Idempotent when it is already present.
+channel=$(sed -n 's/^channel = "\(.*\)"$/\1/p' experience/data-factory/pod/rust-toolchain.toml)
+say "installing the pinned Rust toolchain $channel with clippy and rustfmt"
+rustup toolchain install "$channel" --profile minimal --component clippy --component rustfmt
+
 say "syncing both workspaces (uv + pnpm) — this resolves several GiB of wheels"
 just install
 
