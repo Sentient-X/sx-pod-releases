@@ -1,3 +1,4 @@
-fec10d96a2db1e0fada18ad891075e625ebff676a4acb9f873a87a9b5a9909dd  /home/runner/work/_temp/pod-release/sx-pod-binary-0.2.2-x86_64-unknown-linux-gnu.tar.gz
-5a74e800d0d4713a5f292c7e51e03243456fb1e754aa3de6eeceb72d6e7bf106  /home/runner/work/_temp/pod-release/sx-pod-runtime-0.2.2-x86_64-unknown-linux-gnu.tar.zst
-ac379f254d1d3182b1f6349d9ef1da25b65b2a309699996d9a9e2876807dffe7  /home/runner/work/_temp/pod-release/onboard-pod.sh
+964b524172ff39f01fe89917612f4c50f7b625d84b88159673138777f44b43e6  /home/runner/work/_temp/pod-release/sx-pod-binary-0.2.3-x86_64-unknown-linux-gnu.tar.gz
+66c6283b1275b154c7bf0a78e09c4fd7a83fb1bd785856a77b4c05fa59aaae53  /home/runner/work/_temp/pod-release/sx-pod-runtime-0.2.3-x86_64-unknown-linux-gnu.tar.zst
+94fd544388be4037aae080c6c6c0bd5be440be9d1e2d8efff6fe0ac91148910b  /home/runner/work/_temp/pod-release/onboard-pod.sh
+4a99faedd570c0966150ca463b96fe835238999989fd795b8a446b7b5e9a3be7  /home/runner/work/_temp/pod-release/internal-dev.sh

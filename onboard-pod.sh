@@ -211,6 +211,20 @@ curl --proto '=https' --tlsv1.2 -fsS -X PUT \
   -d "$commission" "${FACTORY_URL}api/pods/$pod_id/commission" >/dev/null \
   || die "Factory pod commissioning failed"
 
+# The hosted backend reaches this pod through a platform route the Factory now
+# provisions from its own pod table; enrollment is complete before that route is.
+# Wait a little for it, then report what the Factory observed rather than claim it.
+route_state=unknown
+route_detail="not yet observed"
+for _ in $(seq 1 24); do
+  if pod_json=$(curl --proto '=https' --tlsv1.2 -fsS "${FACTORY_URL}api/pods/$pod_id"); then
+    route_state=$(jq -er .egress_state <<<"$pod_json") || die "Factory answered without a route state"
+    route_detail=$(jq -er .egress_detail <<<"$pod_json") || die "Factory answered without a route state"
+    case $route_state in ready|direct|rejected|withdrawn) break ;; esac
+  fi
+  sleep 5
+done
+
 install -m 0644 "$release/systemd/sx-pod.service" \
   /etc/systemd/user/sx-pod.service
 if test -n "$nas_root"; then
@@ -251,9 +265,14 @@ fi
 
 echo
 if test "$qualified" = true; then
-  echo "SX Pod $pod_id is installed, commissioned, and hardware-qualified at $tailscale_ip."
+  echo "SX Pod $pod_id is installed, enrolled, and hardware-qualified at $tailscale_ip."
 else
-  echo "SX Pod $pod_id is installed and commissioned at $tailscale_ip."
+  echo "SX Pod $pod_id is installed and enrolled at $tailscale_ip."
   echo "Open Settings to finish the physical device/calibration checklist; no reinstall is needed."
 fi
+echo "Platform route: $route_state — $route_detail"
+case $route_state in
+  ready|direct) ;;
+  *) echo "The platform provisions the route on its own; Capture › Pods shows its state, and managed recording waits for it." ;;
+esac
 echo "Log out and back in once to activate device/priority groups and start SX Pod."
