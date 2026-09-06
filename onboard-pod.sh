@@ -57,6 +57,11 @@ apt-get install -y --no-install-recommends \
   adb ca-certificates chrony curl ffmpeg jq tar zstd util-linux usbutils v4l-utils xdg-utils \
   libegl1 libgl1 libgl1-mesa-dri libudev1 libwayland-client0 libx11-6 \
   libx11-xcb1 libxcb1 libxcursor1 libxi6 libxkbcommon0 libxkbcommon-x11-0 libxrandr2
+# SX Pod sounds its cues through ALSA's default device, the session's PulseAudio or
+# PipeWire. Every desktop Ubuntu carries the library with its sound server; without it the
+# binary cannot load, so refuse here rather than leave the service crash-looping.
+ldconfig -p | grep 'libasound\.so\.2' >/dev/null ||
+  die "libasound.so.2 is missing: this laptop has no desktop sound server (pulseaudio or pipewire)"
 
 install -d -m 0755 /etc/chrony/conf.d
 put_file 0644 root:root /etc/chrony/conf.d/sx-station.conf <<'EOF'
