@@ -20,6 +20,13 @@ prompt_secret() {
   printf '%s' "$value"
 }
 safe_id() { [[ "$1" =~ ^[A-Za-z0-9._-]+$ ]]; }
+# A file whose content is stdin. Not `install` reading its standard input: the
+# Rust coreutils Ubuntu ships from 26.04 refuse to overwrite an existing
+# destination that way, which made every re-run of this script die on the first
+# file it had already written. Written private, then owned and opened to MODE.
+put_file() {  # put_file MODE OWNER:GROUP DEST
+  ( umask 077 && cat >"$3" ) && chown "$2" "$3" && chmod "$1" "$3"
+}
 
 test $# -eq 0 || die "this installer takes no arguments"
 if test "$(id -u)" -ne 0; then
@@ -52,7 +59,7 @@ apt-get install -y --no-install-recommends \
   libx11-xcb1 libxcb1 libxcursor1 libxi6 libxkbcommon0 libxkbcommon-x11-0 libxrandr2
 
 install -d -m 0755 /etc/chrony/conf.d
-install -m 0644 /dev/stdin /etc/chrony/conf.d/sx-station.conf <<'EOF'
+put_file 0644 root:root /etc/chrony/conf.d/sx-station.conf <<'EOF'
 # SX camera timestamps use CLOCK_MONOTONIC. Never let UTC discipline slew it fast
 # enough to violate the Quest-to-host mapping proved at episode arm and stop.
 maxslewrate 100
@@ -66,7 +73,7 @@ systemctl restart chrony.service
 
 install -d -m 0755 /etc/modprobe.d
 printf '%s\n' 'options uvcvideo hwtimestamps=1' \
-  | install -m 0644 /dev/stdin /etc/modprobe.d/sx-yubi-uvc.conf
+  | put_file 0644 root:root /etc/modprobe.d/sx-yubi-uvc.conf
 if test -w /sys/module/uvcvideo/parameters/hwtimestamps; then
   printf '1\n' >/sys/module/uvcvideo/parameters/hwtimestamps
 fi
@@ -127,13 +134,13 @@ else
     || die "join code is not for a valid pod"
   jq -er .key "$download/join.json" \
     | tr -d '\n' \
-    | install -o root -g sx-pod -m 0640 /dev/stdin /etc/sx-pod/machine-key
+    | put_file 0640 root:sx-pod /etc/sx-pod/machine-key
 fi
 
 if test ! -s /etc/sx-pod/agent-token; then
   agent_token=$(prompt_secret "Factory YUBI agent token")
   printf '%s' "$agent_token" \
-    | install -o root -g sx-pod -m 0640 /dev/stdin /etc/sx-pod/agent-token
+    | put_file 0640 root:sx-pod /etc/sx-pod/agent-token
   unset agent_token
 fi
 install -o root -g sx-pod -m 0640 \
@@ -178,7 +185,7 @@ if test -n "$nas_root"; then
   nas_toml="nas_root = \"$nas_root\""
 fi
 
-install -o root -g sx-pod -m 0660 /dev/stdin /etc/sx-pod/config.toml <<EOF
+put_file 0660 root:sx-pod /etc/sx-pod/config.toml <<EOF
 pod_id = "$pod_id"
 factory_url = "$FACTORY_URL"
 auth_url = "$AUTH_URL"
@@ -229,12 +236,12 @@ install -m 0644 "$release/systemd/sx-pod.service" \
   /etc/systemd/user/sx-pod.service
 if test -n "$nas_root"; then
   install -d -m 0755 /etc/systemd/user/sx-pod.service.d
-  install -m 0644 /dev/stdin /etc/systemd/user/sx-pod.service.d/storage.conf <<EOF
+  put_file 0644 root:root /etc/systemd/user/sx-pod.service.d/storage.conf <<EOF
 [Service]
 ReadWritePaths=$nas_root
 EOF
 fi
-install -m 0644 /dev/stdin /etc/security/limits.d/60-sx-pod.conf <<'EOF'
+put_file 0644 root:root /etc/security/limits.d/60-sx-pod.conf <<'EOF'
 @sx-pod - nice -5
 @sx-pod - memlock 262144
 @sx-pod - rtprio 20
