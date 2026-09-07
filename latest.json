@@ -1,10 +1,10 @@
 {
   "schema": "sx.pod-release/v1",
-  "version": "0.4.0",
+  "version": "0.4.1",
   "target": "x86_64-unknown-linux-gnu",
-  "published_at": "2026-09-06T13:37:23Z",
-  "binary_url": "https://raw.githubusercontent.com/Sentient-X/sx-pod-releases/releases/artifacts/sx-pod-binary-0.4.0-x86_64-unknown-linux-gnu.tar.gz",
-  "binary_sha256": "70891b0710308f3125688406f43f3714b0a69f6dd90f099ac3b789eb3376bbb2",
-  "runtime_url": "https://raw.githubusercontent.com/Sentient-X/sx-pod-releases/releases/artifacts/sx-pod-runtime-0.4.0-x86_64-unknown-linux-gnu.tar.zst",
-  "runtime_sha256": "24423582c1286ac69988f4c7977e3eb0b8123e2f63f013859d5779f50f5ffbe0"
+  "published_at": "2026-09-07T05:14:19Z",
+  "binary_url": "https://raw.githubusercontent.com/Sentient-X/sx-pod-releases/releases/artifacts/sx-pod-binary-0.4.1-x86_64-unknown-linux-gnu.tar.gz",
+  "binary_sha256": "49b8d5c7446630e1629c197bc1a1f7f1f02486fdb31be3d749935f2c17f553ea",
+  "runtime_url": "https://raw.githubusercontent.com/Sentient-X/sx-pod-releases/releases/artifacts/sx-pod-runtime-0.4.1-x86_64-unknown-linux-gnu.tar.zst",
+  "runtime_sha256": "48ef83743328099752379577745ab3d04a07996cdc8e06cc573d2054390b1d45"
 }
