@@ -19,13 +19,16 @@ prompt_secret() {
   test -n "$value" || die "$label must not be empty"
   printf '%s' "$value"
 }
-safe_id() { [[ "$1" =~ ^[A-Za-z0-9._-]+$ ]]; }
-# A file whose content is stdin. Not `install` reading its standard input: the
-# Rust coreutils Ubuntu ships from 26.04 refuse to overwrite an existing
-# destination that way, which made every re-run of this script die on the first
-# file it had already written. Written private, then owned and opened to MODE.
+safe_id() { [[ "$1" =~ ^[a-z]([a-z0-9-]*[a-z0-9])?$ && ${#1} -le 54 ]]; }
+# Publish complete configuration/credential bytes atomically, including on reruns.
 put_file() {  # put_file MODE OWNER:GROUP DEST
-  ( umask 077 && cat >"$3" ) && chown "$2" "$3" && chmod "$1" "$3"
+  local staged
+  staged=$(mktemp "$3.XXXXXXXX")
+  if ! (umask 077 && cat >"$staged" && chown "$2" "$staged" && chmod "$1" "$staged"); then
+    rm -f -- "$staged"
+    return 1
+  fi
+  mv -f -- "$staged" "$3"
 }
 
 test $# -eq 0 || die "this installer takes no arguments"
@@ -55,6 +58,7 @@ export DEBIAN_FRONTEND=noninteractive
 apt-get update
 apt-get install -y --no-install-recommends \
   adb ca-certificates chrony curl ffmpeg jq tar zstd util-linux usbutils v4l-utils xdg-utils \
+  libgstreamer1.0-0 gstreamer1.0-plugins-base gstreamer1.0-plugins-good gstreamer1.0-plugins-bad gstreamer1.0-plugins-ugly \
   libegl1 libgl1 libgl1-mesa-dri libudev1 libwayland-client0 libx11-6 \
   libx11-xcb1 libxcb1 libxcursor1 libxi6 libxkbcommon0 libxkbcommon-x11-0 libxrandr2
 # SX Pod sounds its cues through ALSA's default device, the session's PulseAudio or
@@ -88,17 +92,24 @@ trap 'rm -rf -- "$download"' EXIT
 curl --proto '=https' --tlsv1.2 -fsSL --retry 5 --retry-all-errors \
   "$MANIFEST_URL" -o "$download/release.json"
 jq -e --arg target "$TARGET" '
-  .schema == "sx.pod-release/v1" and
+  .schema == "sx.pod-release/v2" and
   .target == $target and
   (.version | test("^[0-9]+\\.[0-9]+\\.[0-9]+$")) and
   (.runtime_url | startswith("https://raw.githubusercontent.com/Sentient-X/sx-pod-releases/releases/")) and
-  (.runtime_sha256 | test("^[0-9a-f]{64}$"))
+  (.runtime_sha256 | test("^[0-9a-f]{64}$")) and
+  (.runtime_parts | type == "number") and .runtime_parts >= 1 and .runtime_parts <= 64 and (.runtime_parts | floor == .)
 ' "$download/release.json" >/dev/null || die "release manifest is invalid"
 version=$(jq -er .version "$download/release.json")
 runtime_url=$(jq -er .runtime_url "$download/release.json")
 runtime_sha256=$(jq -er .runtime_sha256 "$download/release.json")
-curl --proto '=https' --tlsv1.2 -fL --retry 8 --retry-all-errors \
-  "$runtime_url" -o "$download/runtime.tar.zst"
+runtime_parts=$(jq -er .runtime_parts "$download/release.json")
+for ((index=0; index<runtime_parts; index++)); do
+  printf -v suffix '%04d' "$index"
+  curl --proto '=https' --tlsv1.2 -fL --retry 8 --retry-all-errors \
+    "$runtime_url.part$suffix" -o "$download/part"
+  test "$(stat -c %s "$download/part")" -le 67108864 || die "release part is too large"
+  cat "$download/part" >> "$download/runtime.tar.zst"
+done
 printf '%s  %s\n' "$runtime_sha256" "$download/runtime.tar.zst" \
   | sha256sum --check --status || die "release digest mismatch"
 
@@ -124,22 +135,67 @@ install -o "$desktop_user" -g sx-pod -m 0750 "$release/bin/sx-pod" /opt/sx-pod/b
 ln -sfn /opt/sx-pod/bin/sx-pod /usr/local/bin/sx-pod
 ln -sfn "$release" /opt/sx-pod/current
 
-if test -s /etc/sx-pod/machine-key && test -s /etc/sx-pod/config.toml; then
+# A pending join response survives an interrupted install. It is removed only
+# after the new identity's configuration and Factory registration are durable.
+pending_enrollment=/etc/sx-pod/pending-enrollment.json
+reuse_identity=false
+reenrolling=false
+if test ! -s "$pending_enrollment" && test -s /etc/sx-pod/machine-key && test -s /etc/sx-pod/config.toml; then
   pod_id=$(sed -n 's/^pod_id = "\([A-Za-z0-9._-]*\)"$/\1/p' /etc/sx-pod/config.toml)
   safe_id "$pod_id" || die "existing pod identity is invalid"
+  curl --proto '=https' --tlsv1.2 -fsS "${FACTORY_URL}api/pods/$pod_id" \
+    -o "$download/existing-pod.json" || die "cannot verify this station's current service life; try again"
+  lifecycle=$(jq -er .lifecycle "$download/existing-pod.json")
+  case "$lifecycle" in
+    active)
+      reuse_identity=true
+      ;;
+    retiring|revoking)
+      die "finish retiring and decommissioning $pod_id in Capture before connecting it again"
+      ;;
+    decommissioned)
+      test "$(jq -er .teardown_state "$download/existing-pod.json")" = done \
+        || die "finish $pod_id's network removal in Capture before re-enrolling this laptop"
+      echo "Station $pod_id is decommissioned. Enter a new installation code to connect this laptop again."
+      desktop_uid=$(id -u "$desktop_user")
+      if test -S "/run/user/$desktop_uid/bus"; then
+        runuser -u "$desktop_user" -- env XDG_RUNTIME_DIR="/run/user/$desktop_uid" \
+          DBUS_SESSION_BUS_ADDRESS="unix:path=/run/user/$desktop_uid/bus" \
+          systemctl --user stop sx-pod.service
+      fi
+      archive=$(mktemp -d /etc/sx-pod/retired-XXXXXXXX)
+      chmod 0700 "$archive"
+      cp /etc/sx-pod/config.toml /etc/sx-pod/machine-key "$archive/"
+      reenrolling=true
+      ;;
+    *) die "Factory returned an unknown service life for $pod_id" ;;
+  esac
+fi
+
+if test "$reuse_identity" = true; then
+  journal_path=$(sed -n 's/^local_journal = "\([^"]*\)"$/\1/p' /etc/sx-pod/config.toml)
+  test -n "$journal_path" || die "existing station configuration has no journal"
 else
-  join_code=$(prompt_secret "Single-use SX pod join code")
-  curl --proto '=https' --tlsv1.2 -fsS \
-    -H 'Content-Type: application/json' \
-    -d "$(jq -nc --arg code "$join_code" '{code:$code}')" \
-    "${AUTH_URL}api/nodes/join" -o "$download/join.json" || die "pod join failed"
-  subject=$(jq -er .subject "$download/join.json")
+  if test ! -s "$pending_enrollment"; then
+    join_code=$(prompt_secret "Single-use SX pod join code")
+    curl --proto '=https' --tlsv1.2 -fsS \
+      -H 'Content-Type: application/json' \
+      -d "$(jq -nc --arg code "$join_code" '{code:$code}')" \
+      "${AUTH_URL}api/nodes/join" -o "$download/join.json" || die "pod join failed; retry with the same code"
+    subject=$(jq -er .subject "$download/join.json")
+    safe_id "${subject#pod:}" && test "$subject" = "pod:${subject#pod:}" \
+      || die "join code is not for a valid pod"
+    jq -e '.key | type == "string" and length > 0' "$download/join.json" >/dev/null \
+      || die "join response has no machine credential"
+    put_file 0600 root:root "$pending_enrollment" <"$download/join.json"
+  fi
+  subject=$(jq -er .subject "$pending_enrollment")
   pod_id=${subject#pod:}
-  test "$subject" = "pod:$pod_id" && safe_id "$pod_id" \
-    || die "join code is not for a valid pod"
-  jq -er .key "$download/join.json" \
-    | tr -d '\n' \
+  safe_id "$pod_id" && test "$subject" = "pod:$pod_id" || die "pending enrollment is invalid"
+  jq -er .key "$pending_enrollment" | tr -d '\n' \
     | put_file 0640 root:sx-pod /etc/sx-pod/machine-key
+  install -d -o "$desktop_user" -g sx-pod -m 0770 /var/lib/sx-pod/journals
+  journal_path="/var/lib/sx-pod/journals/$pod_id.sqlite3"
 fi
 
 if test ! -s /etc/sx-pod/agent-token; then
@@ -158,11 +214,16 @@ if ! command -v tailscale >/dev/null 2>&1; then
   sh "$download/tailscale-install.sh"
 fi
 systemctl enable --now tailscaled
+if test "$reenrolling" = true; then
+  tailscale logout
+fi
 if ! tailscale status >/dev/null 2>&1; then
   tailscale_auth_key=$(prompt_secret "Single-use tagged Tailscale auth key")
   tailscale up --auth-key "$tailscale_auth_key" --hostname "$pod_id" \
     --advertise-tags=tag:pod --accept-routes=false
   unset tailscale_auth_key
+else
+  tailscale set --hostname "$pod_id"
 fi
 tailscale_ip=$(tailscale ip -4 | head -n1)
 [[ "$tailscale_ip" =~ ^100\.(6[4-9]|[7-9][0-9]|1[01][0-9]|12[0-7])\.[0-9]{1,3}\.[0-9]{1,3}$ ]] \
@@ -207,7 +268,7 @@ calibration_root = "/etc/sx-yubi/calibration"
 capture_root = "/var/lib/sx-pod/captures"
 $nas_toml
 machine_key_file = "/etc/sx-pod/machine-key"
-local_journal = "/var/lib/sx-pod/pod.sqlite3"
+local_journal = "$journal_path"
 poll_interval_ms = 1000
 reserve_gib = 10
 minimum_write_mib_s = 32.0
@@ -221,7 +282,8 @@ commission=$(jq -nc \
 curl --proto '=https' --tlsv1.2 -fsS -X PUT \
   -H "X-API-Key: $(</etc/sx-pod/machine-key)" -H 'Content-Type: application/json' \
   -d "$commission" "${FACTORY_URL}api/pods/$pod_id/commission" >/dev/null \
-  || die "Factory pod commissioning failed"
+  || die "Factory pod commissioning failed; rerun the installer to resume"
+rm -f -- "$pending_enrollment"
 
 # The hosted backend reaches this pod through a platform route the Factory now
 # provisions from its own pod table; enrollment is complete before that route is.
@@ -277,11 +339,12 @@ fi
 
 echo
 if test "$qualified" = true; then
-  echo "SX Pod $pod_id is installed, enrolled, and hardware-qualified at $tailscale_ip."
+  echo "SX Pod $pod_id is installed, enrolled, and host-qualified at $tailscale_ip."
 else
   echo "SX Pod $pod_id is installed and enrolled at $tailscale_ip."
-  echo "Open Settings to finish the physical device/calibration checklist; no reinstall is needed."
+  echo "Open Settings to finish the host checklist; no reinstall is needed."
 fi
+echo "Connect the registered rig and start a shift to download its calibration and check devices."
 echo "Platform route: $route_state — $route_detail"
 case $route_state in
   ready|direct) ;;
