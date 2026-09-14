@@ -57,7 +57,7 @@ echo "Installing the SX Pod media and device runtime…"
 export DEBIAN_FRONTEND=noninteractive
 apt-get update
 apt-get install -y --no-install-recommends \
-  adb ca-certificates chrony curl ffmpeg jq tar zstd util-linux usbutils v4l-utils xdg-utils \
+  adb ca-certificates chrony curl ffmpeg jq tar zstd udev util-linux usbutils v4l-utils xdg-utils \
   libgstreamer1.0-0 gstreamer1.0-plugins-base gstreamer1.0-plugins-good gstreamer1.0-plugins-bad gstreamer1.0-plugins-ugly \
   libegl1 libgl1 libgl1-mesa-dri libudev1 libwayland-client0 libx11-6 \
   libx11-xcb1 libxcb1 libxcursor1 libxi6 libxkbcommon0 libxkbcommon-x11-0 libxrandr2
@@ -127,6 +127,25 @@ for group in video dialout plugdev sx-pod; do
   getent group "$group" >/dev/null || groupadd --system "$group"
   usermod -aG "$group" "$desktop_user"
 done
+# Permissions follow supported USB models; Factory alone assigns component roles.
+install -d -m 0755 /etc/udev/rules.d
+put_file 0644 root:root /etc/udev/rules.d/99-sx-pod-usb.rules <<'EOF'
+SUBSYSTEM=="video4linux", ATTRS{idVendor}=="32e4", ATTRS{idProduct}=="9230", GROUP:="video", MODE:="0660"
+SUBSYSTEM=="tty", ATTRS{idVendor}=="303a", ATTRS{idProduct}=="1001", GROUP:="dialout", MODE:="0660", ENV{ID_MM_PORT_IGNORE}="1"
+EOF
+udevadm control --reload-rules
+# Apply to already-connected supported devices without retriggering every peripheral.
+for usb in /sys/bus/usb/devices/*; do
+  test -r "$usb/idVendor" && test -r "$usb/idProduct" || continue
+  case "$(<"$usb/idVendor"):$(<"$usb/idProduct")" in
+    32e4:9230) subsystem=video4linux ;;
+    303a:1001) subsystem=tty ;;
+    *) continue ;;
+  esac
+  udevadm trigger --action=change --subsystem-match="$subsystem" --parent-match="$usb"
+done
+udevadm settle --timeout=10
+
 install -d -o "$desktop_user" -g sx-pod -m 0770 \
   /var/lib/sx-pod /var/lib/sx-pod/android /var/lib/sx-pod/captures /opt/sx-pod/bin
 install -d -o root -g sx-pod -m 2770 /etc/sx-pod
@@ -260,10 +279,6 @@ agent_host = "$tailscale_ip"
 agent_port = 8220
 agent_token_file = "/etc/sx-pod/agent-token"
 yubi_urdf = "/etc/sx-pod/yubi_hands.urdf"
-left_camera = "/dev/yubi_left_camera"
-right_camera = "/dev/yubi_right_camera"
-left_encoder = "/dev/yubi_left_esp32c6"
-right_encoder = "/dev/yubi_right_esp32c6"
 calibration_root = "/etc/sx-yubi/calibration"
 capture_root = "/var/lib/sx-pod/captures"
 $nas_toml
