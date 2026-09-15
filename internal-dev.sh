@@ -13,8 +13,8 @@
 # Installs the core toolchain only where it is missing — just, uv, Java 11+,
 # Node 22 + pnpm (via corepack), rustup — then syncs both workspaces with
 # `just install`.
-# The dev-stack extras (Docker, Helm, kubectl) are checked and reported, never
-# auto-installed: `just dev` needs them, `just check` does not.
+# Nothing here installs a container runtime: there is no local cluster, and a door
+# runs as a process against preview (`just serve`).
 set -euo pipefail
 
 say() { printf '\033[1;32msx-dev:\033[0m %s\n' "$*"; }
@@ -138,8 +138,8 @@ rustup toolchain install "$channel" --profile minimal --component clippy --compo
 say "syncing both workspaces (uv + pnpm) — this resolves several GiB of wheels"
 just install
 
-say "done. Toolchain for the dev stack (only needed for 'just dev'):"
-for tool in docker helm kubectl; do
-  if have "$tool"; then say "  $tool: found"; else say "  $tool: MISSING — install it before running 'just dev'"; fi
+say "done. What a door against preview also needs:"
+for tool in infisical tailscale; do
+  if have "$tool"; then say "  $tool: found"; else say "  $tool: MISSING — install it before running 'just serve'"; fi
 done
-say "next: 'just check' for the repo gate, 'just dev' for the local stack, bare 'just' to list everything"
+say "next: 'just check' for the repo gate, 'just serve <door>' for one door, bare 'just' to list everything"
