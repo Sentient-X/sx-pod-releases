@@ -291,13 +291,26 @@ upload_limit_mib_s = 20
 simulation = false
 EOF
 
+commission_name="SX Pod $pod_id"
+rig_type_id=rig_yubi_managed
+if test "$reuse_identity" = true; then
+  # Factory owns the station's display name and rig assignment. An upgrade replays
+  # those facts, but still asserts this laptop's actual hostname and tailnet address.
+  commission_name=$(jq -er '.name | select(type == "string" and length > 0)' "$download/existing-pod.json") \
+    || die "Factory returned no station name; repair the station in Capture before rerunning"
+  rig_type_id=$(jq -er '.rig_type.id | select(type == "string" and length > 0)' "$download/existing-pod.json") \
+    || die "Factory returned no rig assignment; repair the station in Capture before rerunning"
+fi
 commission=$(jq -nc \
-  --arg name "SX Pod $pod_id" --arg laptop "$(hostname)" --arg ip "$tailscale_ip" \
-  '{name:$name,laptop_hostname:$laptop,tailscale_ip:$ip,rig_type_id:"rig_yubi_managed"}')
-curl --proto '=https' --tlsv1.2 -fsS -X PUT \
+  --arg name "$commission_name" --arg laptop "$(hostname)" --arg ip "$tailscale_ip" \
+  --arg rig "$rig_type_id" \
+  '{name:$name,laptop_hostname:$laptop,tailscale_ip:$ip,rig_type_id:$rig}')
+if ! curl --proto '=https' --tlsv1.2 --fail-with-body -sS -X PUT \
   -H "X-API-Key: $(</etc/sx-pod/machine-key)" -H 'Content-Type: application/json' \
-  -d "$commission" "${FACTORY_URL}api/pods/$pod_id/commission" >/dev/null \
-  || die "Factory pod commissioning failed; rerun the installer to resume"
+  -d "$commission" "${FACTORY_URL}api/pods/$pod_id/commission" -o "$download/commission.json"; then
+  test ! -f "$download/commission.json" || cat "$download/commission.json" >&2
+  die "Factory pod commissioning failed; resolve the reported error before rerunning"
+fi
 rm -f -- "$pending_enrollment"
 
 # The hosted backend reaches this pod through a platform route the Factory now
