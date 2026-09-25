@@ -292,7 +292,7 @@ simulation = false
 EOF
 
 commission_name="SX Pod $pod_id"
-rig_type_id=rig_yubi_managed
+rig_type_id=rig_yubi
 if test "$reuse_identity" = true; then
   # Factory owns the station's display name and rig assignment. An upgrade replays
   # those facts, but still asserts this laptop's actual hostname and tailnet address.
