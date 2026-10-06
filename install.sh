@@ -26,6 +26,7 @@ Run the same command again to update.
 Environment:
   SX_INSTALL_DIR      Command directory (default: ~/.local/bin)
   SX_NO_MODIFY_PATH   Set to 1 to leave shell profiles unchanged (CI/containers)
+  SX_INSTALL_VERSION Explicit published version (default: latest, including prereleases)
   SX_INSTALL_PACKAGE Explicit sentientx wheel path or URL (release verification)
 HELP
             return
@@ -52,38 +53,17 @@ HELP
     trap 'rm -rf -- "$download_dir"' 0
     trap 'exit 1' 1 2 3 15
 
-    # A release pointer contains only a version and a SHA-256, never shell code.
-    # The wheel lives under its digest so a concurrent release cannot change it.
+    # PyPI is the same immutable release source used by Python applications.
+    # A separate wheel pointer can serve different bytes under the same version.
     if [ -n "${SX_INSTALL_PACKAGE:-}" ]; then
         package=$SX_INSTALL_PACKAGE
+    elif [ -n "${SX_INSTALL_VERSION:-}" ]; then
+        case "$SX_INSTALL_VERSION" in
+            *[!0-9a-z.+!_-]*|[!0-9]*) fail 'Invalid sx release version.' ;;
+        esac
+        package="sentientx==$SX_INSTALL_VERSION"
     else
-        releases=https://raw.githubusercontent.com/Sentient-X/sx-pod-releases/releases
-        download "$releases/sdk/latest.txt" "$download_dir/release" \
-            || fail 'Could not download the sx release. Check your connection and retry.'
-        IFS=' ' read -r version digest extra < "$download_dir/release" \
-            || fail 'Incomplete sx release metadata.'
-        case "$version" in
-            ''|*[!0-9a-z.]*|[!0-9]*) fail 'Invalid sx release version.' ;;
-        esac
-        case "$digest" in
-            ''|*[!0-9a-f]*) fail 'Invalid sx release checksum.' ;;
-        esac
-        [ "${#digest}" -eq 64 ] && [ -z "$extra" ] \
-            || fail 'Invalid sx release metadata.'
-        wheel="sentientx-$version-py3-none-any.whl"
-        package="$download_dir/$wheel"
-        download "$releases/sdk/$digest/$wheel" "$package" \
-            || fail 'Could not download sx. Check your connection and retry.'
-        # uv tool install does not enforce URL hash fragments. Verify the bytes
-        # here before bootstrapping uv or modifying the installed commands.
-        if command -v sha256sum >/dev/null 2>&1; then
-            actual=$(sha256sum < "$package")
-        elif command -v shasum >/dev/null 2>&1; then
-            actual=$(shasum -a 256 < "$package")
-        else
-            fail 'Install sha256sum or shasum, then run this installer again.'
-        fi
-        [ "${actual%% *}" = "$digest" ] || fail 'Hash mismatch: the sx wheel was not installed.'
+        package=sentientx
     fi
 
     # Use a private bootstrap so an absent or old uv on PATH needs no manual repair.
@@ -96,7 +76,7 @@ HELP
     uv="$download_dir/uv/uv"
     export UV_TOOL_BIN_DIR="$install_dir"
     "$uv" tool install --no-config --managed-python --python 3.12 \
-        --no-build --upgrade "$package" \
+        --no-build --upgrade --prerelease allow "$package" \
         || fail 'Could not install sx. Check the error above, then run this installer again.'
     "$install_dir/sx" --help >/dev/null \
         || fail 'sx was installed but could not start. Check the error above.'
