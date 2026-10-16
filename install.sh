@@ -1,5 +1,5 @@
 #!/bin/sh
-# Install the hosted sx CLI and MCP server without system Python or pip.
+# Install the hosted sx CLI without system Python or pip.
 # curl -fsSL https://docs.sentientx.io/install.sh | sh
 set -eu
 
@@ -80,7 +80,7 @@ HELP
         || fail 'Could not install sx. Check the error above, then run this installer again.'
     "$install_dir/sx" --help >/dev/null \
         || fail 'sx was installed but could not start. Check the error above.'
-    [ -x "$install_dir/sx-mcp" ] || fail 'The release did not install sx-mcp.'
+    [ -x "$install_dir/git-remote-sx" ] || fail 'The release did not install git-remote-sx.'
 
     if [ "${SX_NO_MODIFY_PATH:-0}" = 0 ]; then
         "$uv" tool update-shell --no-config \
