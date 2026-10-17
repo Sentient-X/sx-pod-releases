@@ -1,0 +1,6 @@
+{
+  "schema": "sx.pod-release-hold/v1",
+  "max_version": "0.7.8",
+  "reason": "0.7.9 refuses every start with OpenQuestCapture 1.4.5, which every floor headset runs; lift with the Quest 1.4.6 cutover",
+  "held_at": "2026-10-17T17:30:00Z"
+}
