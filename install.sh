@@ -26,7 +26,7 @@ Run the same command again to update.
 Environment:
   SX_INSTALL_DIR      Command directory (default: ~/.local/bin)
   SX_NO_MODIFY_PATH   Set to 1 to leave shell profiles unchanged (CI/containers)
-  SX_INSTALL_VERSION Explicit published version (default: latest, including prereleases)
+  SX_INSTALL_VERSION Explicit published version (default: latest)
   SX_INSTALL_PACKAGE Explicit sentientx wheel path or URL (release verification)
 HELP
             return
@@ -53,8 +53,9 @@ HELP
     trap 'rm -rf -- "$download_dir"' 0
     trap 'exit 1' 1 2 3 15
 
-    # PyPI is the same immutable release source used by Python applications.
-    # A separate wheel pointer can serve different bytes under the same version.
+    # The sx package index carries the release built from every merge to main; the
+    # PyPI name is stale and still ships retired entry points. A published wheel is
+    # never replaced, so the index serves the same bytes under the same version.
     if [ -n "${SX_INSTALL_PACKAGE:-}" ]; then
         package=$SX_INSTALL_PACKAGE
     elif [ -n "${SX_INSTALL_VERSION:-}" ]; then
@@ -76,7 +77,8 @@ HELP
     uv="$download_dir/uv/uv"
     export UV_TOOL_BIN_DIR="$install_dir"
     "$uv" tool install --no-config --managed-python --python 3.12 \
-        --no-build --upgrade --prerelease allow "$package" \
+        --no-build --upgrade \
+        --index sx=https://packages.sentientx.io/simple/ "$package" \
         || fail 'Could not install sx. Check the error above, then run this installer again.'
     "$install_dir/sx" --help >/dev/null \
         || fail 'sx was installed but could not start. Check the error above.'
